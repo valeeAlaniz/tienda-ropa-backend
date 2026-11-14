@@ -1,0 +1,9 @@
+__pycache__/
+*.py[oc]
+.venv
+*.sqlite3
+.env
+.vscode/
+.idea/
+.DS_Store
+src/staticfiles/
