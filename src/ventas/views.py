@@ -15,6 +15,16 @@ from .models import DetallePedido, Pago, Pedido
 from .serializers import DetallePedidoSerializer, PagoSerializer, PedidoSerializer
 
 
+# Estados a los que se puede pasar desde cada estado. ENTREGADO y CANCELADO son finales.
+TRANSICIONES = {
+    "PENDIENTE": {"CONFIRMADO", "CANCELADO"},
+    "CONFIRMADO": {"ENVIADO", "CANCELADO"},
+    "ENVIADO": {"ENTREGADO"},
+    "ENTREGADO": set(),
+    "CANCELADO": set(),
+}
+
+
 def _cantidad_entera(valor):
     """Convierte la cantidad recibida a int positivo o lanza ValueError."""
     if isinstance(valor, bool):
@@ -167,23 +177,35 @@ class PedidoViewSet(viewsets.ModelViewSet):
 
         return Response(PedidoSerializer(pedido).data, status=status.HTTP_201_CREATED)
 
-    # --- Adelanto de la Fase 2 (Marcos A): se completa con transiciones válidas y tests ---
-
     @action(detail=True, methods=["patch"], url_path="cambiar_estado")
     def cambiar_estado(self, request, pk=None):
-        """Solo staff: cambia el estado, crea el pago al confirmar y devuelve stock al cancelar."""
+        """Solo staff: aplica una transición válida, crea el pago al confirmar
+        y devuelve el stock al cancelar."""
         pedido = self.get_object()
         nuevo_estado = request.data.get("estado")
 
-        if nuevo_estado not in [e[0] for e in Pedido.ESTADO_CHOICES]:
+        if nuevo_estado not in TRANSICIONES:
             return Response({"error": "Estado inválido."}, status=status.HTTP_400_BAD_REQUEST)
 
-        with transaction.atomic():
-            if nuevo_estado == "CONFIRMADO" and pedido.estado != "CONFIRMADO":
-                if not hasattr(pedido, "pago"):
-                    Pago.objects.create(pedido=pedido, monto=pedido.monto_total, aprobado=True)
+        metodo = request.data.get("metodo", "TARJETA")
+        if nuevo_estado == "CONFIRMADO" and metodo not in [m[0] for m in Pago.METODO_PAGO_CHOICES]:
+            return Response({"error": "Método de pago inválido."}, status=status.HTTP_400_BAD_REQUEST)
 
-            if nuevo_estado == "CANCELADO" and pedido.estado != "CANCELADO":
+        with transaction.atomic():
+            # Se vuelve a leer con bloqueo para que dos cambios simultáneos no se pisen.
+            pedido = Pedido.objects.select_for_update().get(pk=pedido.pk)
+
+            if nuevo_estado not in TRANSICIONES[pedido.estado]:
+                return Response(
+                    {"error": f"No se puede pasar de {pedido.estado} a {nuevo_estado}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if nuevo_estado == "CONFIRMADO":
+                Pago.objects.create(
+                    pedido=pedido, metodo=metodo, monto=pedido.monto_total, aprobado=True
+                )
+            elif nuevo_estado == "CANCELADO":
                 _devolver_stock(pedido)
 
             pedido.estado = nuevo_estado
