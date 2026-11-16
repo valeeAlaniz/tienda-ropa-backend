@@ -2,7 +2,6 @@
 
 API REST (Django y Django REST Framework) de una tienda de ropa con alquiler de prendas.
 
-Proyecto desarrollado a partir de la experiencia y la estructura de PlacarApp, el proyecto anterior del grupo.
 
 ## Ejecutar en local
 
