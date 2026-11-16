@@ -5,7 +5,7 @@ from .models import HorarioAtencion, Sucursal, Turno
 
 @admin.register(Sucursal)
 class SucursalAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "direccion")
+    list_display = ("nombre", "ciudad", "direccion")
 
 
 @admin.register(HorarioAtencion)

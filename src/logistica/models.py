@@ -4,6 +4,7 @@ from django.db import models
 
 class Sucursal(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
+    ciudad = models.CharField(max_length=100)
     direccion = models.CharField(max_length=200, blank=True)
 
     class Meta:
@@ -57,22 +58,23 @@ class HorarioAtencion(models.Model):
 
 
 class TipoTurno(models.TextChoices):
-    PRUEBA = "prueba", "Prueba"
-    RETIRO = "retiro", "Retiro"
-    DEVOLUCION = "devolucion", "Devolución"
+    PRUEBA = "PRUEBA", "Prueba"
+    RETIRO = "RETIRO", "Retiro"
+    DEVOLUCION = "DEVOLUCION", "Devolución"
 
 
 class EstadoTurno(models.TextChoices):
-    PENDIENTE = "pendiente", "Pendiente"
-    CONFIRMADO = "confirmado", "Confirmado"
-    CANCELADO = "cancelado", "Cancelado"
-    COMPLETADO = "completado", "Completado"
+    PENDIENTE = "PENDIENTE", "Pendiente"
+    CONFIRMADO = "CONFIRMADO", "Confirmado"
+    CANCELADO = "CANCELADO", "Cancelado"
+    COMPLETADO = "COMPLETADO", "Completado"
 
 
 class Turno(models.Model):
     sucursal = models.ForeignKey(
         Sucursal, on_delete=models.PROTECT, related_name="turnos"
     )
+    # Pendiente: pasar a clientes.Cliente cuando esté disponible en develop
     cliente = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="turnos"
     )
@@ -87,11 +89,11 @@ class Turno(models.Model):
     class Meta:
         ordering = ["fecha", "hora"]
         constraints = [
-            # Evita la doble reserva a nivel base de datos: un mismo horario
-            # de una sucursal solo puede tener un turno que no esté cancelado.
+            # Evita la doble reserva: un mismo horario de una sucursal solo
+            # puede tener un turno que no esté cancelado.
             models.UniqueConstraint(
                 fields=["sucursal", "fecha", "hora"],
-                condition=~models.Q(estado="cancelado"),
+                condition=~models.Q(estado=EstadoTurno.CANCELADO),
                 name="turno_unico_por_horario",
             ),
         ]
