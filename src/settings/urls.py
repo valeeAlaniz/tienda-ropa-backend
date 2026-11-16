@@ -6,8 +6,13 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from .auth_views import LoginView
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/token/", LoginView.as_view(), name="api_token_auth"),
+    path("api/", include("catalogo.urls")),
+    path("api/clientes/", include("clientes.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/schema/swagger/",
@@ -19,6 +24,5 @@ urlpatterns = [
         SpectacularRedocView.as_view(url_name="schema"),
         name="redoc",
     ),
-    path("api/", include("catalogo.urls")),
     path("api/ventas/", include("ventas.urls")),
 ]
