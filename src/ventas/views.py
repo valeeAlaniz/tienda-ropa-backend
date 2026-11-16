@@ -120,7 +120,6 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     if not sucursal_id:
                         raise ValueError("Debés indicar una sucursal de retiro.")
                     try:
-                        # Ajuste 2: Se removió activo=True porque el modelo de Sucursal no lo tiene
                         sucursal = Sucursal.objects.get(pk=sucursal_id)
                     except (Sucursal.DoesNotExist, ValueError, TypeError):
                         raise ValueError("La sucursal no existe.")
@@ -192,7 +191,6 @@ class PedidoViewSet(viewsets.ModelViewSet):
             return Response({"error": "Método de pago inválido."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            # Se vuelve a leer con bloqueo para que dos cambios simultáneos no se pisen.
             pedido = Pedido.objects.select_for_update().get(pk=pedido.pk)
 
             if nuevo_estado not in TRANSICIONES[pedido.estado]:
@@ -201,10 +199,16 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Ajuste 3: Validar lógica de RETIRO vs ENVIO para ENVIADO / ENTREGADO
+            # Validar lógica estricta de RETIRO vs ENVIO
             if nuevo_estado == "ENVIADO" and pedido.tipo_entrega == "RETIRO":
                 return Response(
                     {"error": "Un pedido de retiro no puede ser marcado como enviado."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if nuevo_estado == "ENTREGADO" and pedido.tipo_entrega == "ENVIO" and pedido.estado != "ENVIADO":
+                return Response(
+                    {"error": "Un pedido de envío debe pasar por el estado enviado antes de ser entregado."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -235,7 +239,6 @@ class PedidoViewSet(viewsets.ModelViewSet):
             )
 
         with transaction.atomic():
-            # Ajuste 4: Uso de select_for_update para evitar devoluciones de stock duplicadas
             pedido = Pedido.objects.select_for_update().get(pk=pedido.pk)
             
             if pedido.estado != "PENDIENTE":
