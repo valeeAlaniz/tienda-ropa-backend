@@ -250,3 +250,4 @@ class PermisosEstadosTests(EstadosBaseTestCase):
         respuesta = self.client.post(f"/api/ventas/pedidos/{pedido_id}/cancelar/")
 
         self.assertEqual(respuesta.status_code, status.HTTP_403_FORBIDDEN)
+        
