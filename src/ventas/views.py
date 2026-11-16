@@ -15,10 +15,10 @@ from .models import DetallePedido, Pago, Pedido
 from .serializers import DetallePedidoSerializer, PagoSerializer, PedidoSerializer
 
 
-# Estados a los que se puede pasar desde cada estado. ENTREGADO y CANCELADO son finales.
+# Estados a los que se puede pasar según el tipo de entrega. ENTREGADO y CANCELADO son finales.
 TRANSICIONES = {
     "PENDIENTE": {"CONFIRMADO", "CANCELADO"},
-    "CONFIRMADO": {"ENVIADO", "CANCELADO"},
+    "CONFIRMADO": {"ENVIADO", "ENTREGADO", "CANCELADO"},
     "ENVIADO": {"ENTREGADO"},
     "ENTREGADO": set(),
     "CANCELADO": set(),
@@ -120,9 +120,10 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     if not sucursal_id:
                         raise ValueError("Debés indicar una sucursal de retiro.")
                     try:
-                        sucursal = Sucursal.objects.get(pk=sucursal_id, activo=True)
+                        # Ajuste 2: Se removió activo=True porque el modelo de Sucursal no lo tiene
+                        sucursal = Sucursal.objects.get(pk=sucursal_id)
                     except (Sucursal.DoesNotExist, ValueError, TypeError):
-                        raise ValueError("La sucursal no existe o no está activa.")
+                        raise ValueError("La sucursal no existe.")
 
                 pedido = Pedido.objects.create(
                     cliente=cliente,
@@ -169,7 +170,6 @@ class PedidoViewSet(viewsets.ModelViewSet):
                 pedido.save(update_fields=["monto_total"])
 
         except (ValueError, InvalidOperation, TypeError, KeyError) as error:
-            # transaction.atomic ya deshizo todo: pedido, dirección y descuentos de stock.
             return Response(
                 {"error": str(error) or "Los datos del pedido son inválidos."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -201,6 +201,13 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # Ajuste 3: Validar lógica de RETIRO vs ENVIO para ENVIADO / ENTREGADO
+            if nuevo_estado == "ENVIADO" and pedido.tipo_entrega == "RETIRO":
+                return Response(
+                    {"error": "Un pedido de retiro no puede ser marcado como enviado."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             if nuevo_estado == "CONFIRMADO":
                 Pago.objects.create(
                     pedido=pedido, metodo=metodo, monto=pedido.monto_total, aprobado=True
@@ -228,6 +235,15 @@ class PedidoViewSet(viewsets.ModelViewSet):
             )
 
         with transaction.atomic():
+            # Ajuste 4: Uso de select_for_update para evitar devoluciones de stock duplicadas
+            pedido = Pedido.objects.select_for_update().get(pk=pedido.pk)
+            
+            if pedido.estado != "PENDIENTE":
+                return Response(
+                    {"error": "El pedido ya fue modificado."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             _devolver_stock(pedido)
             pedido.estado = "CANCELADO"
             pedido.save(update_fields=["estado"])
