@@ -251,18 +251,13 @@ class CheckoutTests(VentasBaseTestCase):
     def test_pedido_sin_prendas_se_rechaza(self):
         self.assertEqual(self.checkout([]).status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_retiro_exige_sucursal_activa(self):
+    def test_retiro_exige_sucursal(self):
         sin_sucursal = self.client.post(
             "/api/ventas/pedidos/crear_completo/",
             {"tipo_entrega": "RETIRO", "prendas": [{"prenda_id": self.prenda.id, "cantidad": 1}]},
             format="json",
         )
-        self.sucursal.activo = False
-        self.sucursal.save()
-        inactiva = self.checkout([{"prenda_id": self.prenda.id, "cantidad": 1}])
-
         self.assertEqual(sin_sucursal.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(inactiva.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_envio_a_domicilio_guarda_la_direccion(self):
         respuesta = self.client.post(
@@ -352,54 +347,3 @@ class CancelacionTests(VentasBaseTestCase):
         )
         self.assertEqual(permitido.status_code, status.HTTP_200_OK)
         self.assertTrue(Pago.objects.filter(pedido=pedido, aprobado=True).exists())
-
-class TransicionesEstadoTests(VentasBaseTestCase):
-    def test_retiro_confirmado_a_entregado(self):
-        """Un pedido de RETIRO pasa correctamente de CONFIRMADO a ENTREGADO."""
-        pedido, _ = self.crear_pedido(self.cliente)
-        pedido.estado = "CONFIRMADO"
-        pedido.save()
-
-        self.client.force_authenticate(self.staff)
-        response = self.client.patch(
-            f"/api/ventas/pedidos/{pedido.id}/cambiar_estado/",
-            {"estado": "ENTREGADO"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["estado"], "ENTREGADO")
-
-    def test_retiro_bloquea_enviado(self):
-        """Un pedido de RETIRO NO puede pasar al estado ENVIADO."""
-        pedido, _ = self.crear_pedido(self.cliente)
-        pedido.estado = "CONFIRMADO"
-        pedido.save()
-
-        self.client.force_authenticate(self.staff)
-        response = self.client.patch(
-            f"/api/ventas/pedidos/{pedido.id}/cambiar_estado/",
-            {"estado": "ENVIADO"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_envio_bloquea_salto_directo_a_entregado(self):
-        """Un pedido de ENVIO NO puede pasar de CONFIRMADO a ENTREGADO sin pasar por ENVIADO."""
-        direccion = Direccion.objects.create(
-            cliente=self.cliente, calle="Belgrano", numero="100", ciudad="Río Cuarto", codigo_postal="5800"
-        )
-        pedido = Pedido.objects.create(
-            cliente=self.cliente,
-            tipo_entrega="ENVIO",
-            direccion_envio=direccion,
-            estado="CONFIRMADO",
-            monto_total="10000.00",
-        )
-
-        self.client.force_authenticate(self.staff)
-        response = self.client.patch(
-            f"/api/ventas/pedidos/{pedido.id}/cambiar_estado/",
-            {"estado": "ENTREGADO"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

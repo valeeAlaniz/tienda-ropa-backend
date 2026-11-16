@@ -5,10 +5,26 @@ from .tests import VentasBaseTestCase
 
 
 class EstadosBaseTestCase(VentasBaseTestCase):
-    def comprar(self, cantidad=2):
+    def comprar(self, cantidad=2, tipo_entrega="RETIRO"):
         """El cliente compra por el checkout (descuenta stock) y devuelve el id del pedido."""
         self.client.force_authenticate(self.usuario)
-        respuesta = self.checkout([{"prenda_id": self.prenda.id, "cantidad": cantidad}])
+        if tipo_entrega == "ENVIO":
+            respuesta = self.client.post(
+                "/api/ventas/pedidos/crear_completo/",
+                {
+                    "tipo_entrega": "ENVIO",
+                    "direccion_envio": {
+                        "calle": "Belgrano",
+                        "numero": "45",
+                        "ciudad": "Río Cuarto",
+                        "codigo_postal": "5800",
+                    },
+                    "prendas": [{"prenda_id": self.prenda.id, "cantidad": cantidad}],
+                },
+                format="json",
+            )
+        else:
+            respuesta = self.checkout([{"prenda_id": self.prenda.id, "cantidad": cantidad}])
         self.assertEqual(respuesta.status_code, status.HTTP_201_CREATED)
         return respuesta.data["id"]
 
@@ -25,16 +41,40 @@ class EstadosBaseTestCase(VentasBaseTestCase):
 
 
 class TransicionesTests(EstadosBaseTestCase):
-    def test_flujo_completo_pendiente_confirmado_enviado_entregado(self):
-        pedido_id = self.comprar()
+    def test_flujo_completo_retiro_pendiente_confirmado_entregado(self):
+        pedido_id = self.comprar(tipo_entrega="RETIRO")
+        for estado in ["CONFIRMADO", "ENTREGADO"]:
+            respuesta = self.cambiar(pedido_id, estado)
+            self.assertEqual(respuesta.status_code, status.HTTP_200_OK)
+            self.assertEqual(respuesta.data["estado"], estado)
+            self.assertEqual(self.estado(pedido_id), estado)
+
+    def test_flujo_completo_envio_pendiente_confirmado_enviado_entregado(self):
+        pedido_id = self.comprar(tipo_entrega="ENVIO")
         for estado in ["CONFIRMADO", "ENVIADO", "ENTREGADO"]:
             respuesta = self.cambiar(pedido_id, estado)
             self.assertEqual(respuesta.status_code, status.HTTP_200_OK)
             self.assertEqual(respuesta.data["estado"], estado)
             self.assertEqual(self.estado(pedido_id), estado)
 
-    def test_transiciones_invalidas_se_rechazan_y_no_cambian_el_estado(self):
-        pedido_id = self.comprar()
+    def test_retiro_bloquea_enviado(self):
+        pedido_id = self.comprar(tipo_entrega="RETIRO")
+        self.cambiar(pedido_id, "CONFIRMADO")
+
+        respuesta = self.cambiar(pedido_id, "ENVIADO")
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.estado(pedido_id), "CONFIRMADO")
+
+    def test_envio_bloquea_salto_directo_a_entregado(self):
+        pedido_id = self.comprar(tipo_entrega="ENVIO")
+        self.cambiar(pedido_id, "CONFIRMADO")
+
+        respuesta = self.cambiar(pedido_id, "ENTREGADO")
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.estado(pedido_id), "CONFIRMADO")
+
+    def test_transiciones_invalidas_desde_pendiente_se_rechazan(self):
+        pedido_id = self.comprar(tipo_entrega="ENVIO")
 
         for destino in ["ENVIADO", "ENTREGADO"]:
             respuesta = self.cambiar(pedido_id, destino)
@@ -42,7 +82,7 @@ class TransicionesTests(EstadosBaseTestCase):
             self.assertEqual(self.estado(pedido_id), "PENDIENTE")
 
     def test_no_se_vuelve_atras(self):
-        pedido_id = self.comprar()
+        pedido_id = self.comprar(tipo_entrega="ENVIO")
         self.cambiar(pedido_id, "CONFIRMADO")
         self.cambiar(pedido_id, "ENVIADO")
 
@@ -52,8 +92,8 @@ class TransicionesTests(EstadosBaseTestCase):
         self.assertEqual(self.estado(pedido_id), "ENVIADO")
 
     def test_un_pedido_entregado_no_se_puede_cancelar(self):
-        pedido_id = self.comprar(cantidad=3)
-        for estado in ["CONFIRMADO", "ENVIADO", "ENTREGADO"]:
+        pedido_id = self.comprar(cantidad=3, tipo_entrega="RETIRO")
+        for estado in ["CONFIRMADO", "ENTREGADO"]:
             self.cambiar(pedido_id, estado)
 
         respuesta = self.cambiar(pedido_id, "CANCELADO")
@@ -61,7 +101,7 @@ class TransicionesTests(EstadosBaseTestCase):
         self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(self.estado(pedido_id), "ENTREGADO")
         self.prenda.refresh_from_db()
-        self.assertEqual(self.prenda.stock, 7)  # el stock no se devuelve
+        self.assertEqual(self.prenda.stock, 7)
 
     def test_un_pedido_cancelado_no_cambia_mas(self):
         pedido_id = self.comprar()
