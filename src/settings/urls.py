@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/token/", LoginView.as_view(), name="api_token_auth"),
     path("api/", include("catalogo.urls")),
     path("api/clientes/", include("clientes.urls")),
+    path("api/logistica/", include("logistica.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/schema/swagger/",
