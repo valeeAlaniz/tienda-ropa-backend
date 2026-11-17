@@ -91,6 +91,18 @@ class TransicionesTests(EstadosBaseTestCase):
         self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(self.estado(pedido_id), "ENVIADO")
 
+    def test_un_pedido_enviado_no_se_puede_cancelar(self):
+        pedido_id = self.comprar(cantidad=2, tipo_entrega="ENVIO")
+        self.cambiar(pedido_id, "CONFIRMADO")
+        self.cambiar(pedido_id, "ENVIADO")
+
+        respuesta = self.cambiar(pedido_id, "CANCELADO")
+
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.estado(pedido_id), "ENVIADO")
+        self.prenda.refresh_from_db()
+        self.assertEqual(self.prenda.stock, 8)
+
     def test_un_pedido_entregado_no_se_puede_cancelar(self):
         pedido_id = self.comprar(cantidad=3, tipo_entrega="RETIRO")
         for estado in ["CONFIRMADO", "ENTREGADO"]:
@@ -124,6 +136,15 @@ class TransicionesTests(EstadosBaseTestCase):
         )
         self.assertEqual(sin_estado.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(self.estado(pedido_id), "PENDIENTE")
+
+    def test_checkout_con_sucursal_inactiva_se_rechaza(self):
+        self.sucursal.activo = False
+        self.sucursal.save(update_fields=["activo"])
+
+        self.client.force_authenticate(self.usuario)
+        respuesta = self.checkout([{"prenda_id": self.prenda.id, "cantidad": 1}])
+
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class PagoTests(EstadosBaseTestCase):
@@ -200,6 +221,17 @@ class StockTests(EstadosBaseTestCase):
         self.client.post(f"/api/ventas/pedidos/{pedido_id}/cancelar/")
 
         respuesta = self.cambiar(pedido_id, "CANCELADO")
+
+        self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
+        self.prenda.refresh_from_db()
+        self.assertEqual(self.prenda.stock, 10)
+
+    def test_si_el_staff_ya_cancelo_el_cliente_no_puede_volver_a_cancelar(self):
+        pedido_id = self.comprar(cantidad=4)
+        self.cambiar(pedido_id, "CANCELADO")
+
+        self.client.force_authenticate(self.usuario)
+        respuesta = self.client.post(f"/api/ventas/pedidos/{pedido_id}/cancelar/")
 
         self.assertEqual(respuesta.status_code, status.HTTP_400_BAD_REQUEST)
         self.prenda.refresh_from_db()

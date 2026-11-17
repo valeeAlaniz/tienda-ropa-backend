@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from catalogo.models import Prenda
 from clientes.models import Direccion
+from clientes.permissions import filtrar_por_cliente
 from logistica.models import Sucursal
 
 from .models import DetallePedido, Pago, Pedido
@@ -66,9 +67,7 @@ class PedidoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Pedido.objects.all().order_by("-fecha_venta")
-        if self.request.user.is_staff:
-            return queryset
-        return queryset.filter(cliente__usuario=self.request.user)
+        return filtrar_por_cliente(queryset, self.request.user, "cliente")
 
     @action(detail=False, methods=["post"], url_path="crear_completo")
     def crear_completo(self, request):
@@ -120,7 +119,6 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     if not sucursal_id:
                         raise ValueError("Debés indicar una sucursal de retiro.")
                     try:
-                        # CORRECCIÓN: Se exige que la sucursal exista y esté activa (borrado lógico)
                         sucursal = Sucursal.objects.get(pk=sucursal_id, activo=True)
                     except (Sucursal.DoesNotExist, ValueError, TypeError):
                         raise ValueError("La sucursal no existe o no está disponible.")
@@ -200,7 +198,6 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Validar lógica estricta de RETIRO vs ENVIO
             if nuevo_estado == "ENVIADO" and pedido.tipo_entrega == "RETIRO":
                 return Response(
                     {"error": "Un pedido de retiro no puede ser marcado como enviado."},
@@ -233,18 +230,12 @@ class PedidoViewSet(viewsets.ModelViewSet):
         if pedido.cliente.usuario != request.user:
             return Response({"error": "No es tu pedido."}, status=status.HTTP_403_FORBIDDEN)
 
-        if pedido.estado != "PENDIENTE":
-            return Response(
-                {"error": "Solo se pueden cancelar pedidos en estado pendiente."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         with transaction.atomic():
             pedido = Pedido.objects.select_for_update().get(pk=pedido.pk)
-            
+
             if pedido.estado != "PENDIENTE":
                 return Response(
-                    {"error": "El pedido ya fue modificado."},
+                    {"error": "Solo se pueden cancelar pedidos en estado pendiente."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -265,9 +256,7 @@ class DetallePedidoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = DetallePedido.objects.all().order_by("id")
-        if self.request.user.is_staff:
-            return queryset
-        return queryset.filter(pedido__cliente__usuario=self.request.user)
+        return filtrar_por_cliente(queryset, self.request.user, "pedido__cliente")
 
 
 class PagoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -276,6 +265,4 @@ class PagoViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = Pago.objects.all().order_by("-fecha_monto", "-id")
-        if self.request.user.is_staff:
-            return queryset
-        return queryset.filter(pedido__cliente__usuario=self.request.user)
+        return filtrar_por_cliente(queryset, self.request.user, "pedido__cliente")
