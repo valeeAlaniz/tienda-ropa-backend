@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from catalogo.models import Prenda
+
 
 class Alquiler(models.Model):
     """Alquiler de una prenda por un rango de fechas."""
@@ -67,3 +69,29 @@ class Alquiler(models.Model):
         if update_fields is not None:
             kwargs["update_fields"] = set(update_fields) | {"precio_total"}
         super().save(*args, **kwargs)
+
+class PrendaAlquiler(models.Model):
+    """Prenda disponible para alquilar. Catálogo aparte del de venta."""
+
+    nombre = models.CharField(max_length=150)
+    descripcion = models.TextField(blank=True)
+    precio_por_dia = models.DecimalField(max_digits=10, decimal_places=2)
+    categoria = models.ForeignKey(
+        "catalogo.Categoria",
+        on_delete=models.PROTECT,
+        related_name="prendas_alquiler",
+    )
+    talle = models.CharField(max_length=10, choices=Prenda.TALLES)
+    color = models.CharField(max_length=50)
+    imagen = models.URLField(max_length=500, blank=True)
+    destacado = models.BooleanField(default=False)
+    activo = models.BooleanField(default=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "prenda de alquiler"
+        verbose_name_plural = "prendas de alquiler"
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.nombre} ({self.talle}, {self.color})"

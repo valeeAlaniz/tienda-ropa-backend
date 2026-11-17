@@ -26,4 +26,5 @@ urlpatterns = [
         name="redoc",
     ),
     path("api/ventas/", include("ventas.urls")),
+    path("api/", include("alquileres.urls")),
 ]
