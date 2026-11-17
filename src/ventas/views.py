@@ -120,9 +120,10 @@ class PedidoViewSet(viewsets.ModelViewSet):
                     if not sucursal_id:
                         raise ValueError("Debés indicar una sucursal de retiro.")
                     try:
-                        sucursal = Sucursal.objects.get(pk=sucursal_id)
+                        # CORRECCIÓN: Se exige que la sucursal exista y esté activa (borrado lógico)
+                        sucursal = Sucursal.objects.get(pk=sucursal_id, activo=True)
                     except (Sucursal.DoesNotExist, ValueError, TypeError):
-                        raise ValueError("La sucursal no existe.")
+                        raise ValueError("La sucursal no existe o no está disponible.")
 
                 pedido = Pedido.objects.create(
                     cliente=cliente,
